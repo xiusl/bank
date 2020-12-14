@@ -13,17 +13,8 @@ WHERE id = $1 LIMIT 1;
 
 -- name: ListEntries :many
 SELECT * FROM entries
+WHERE account_id = $1
 ORDER BY id
-LIMIT $1
-OFFSET $2;
-
--- name: DeleteEntry :exec
-DELETE FROM entries
-WHERE id = $1;
-
--- name: UpdateEntry :exec
-UPDATE entries
-SET account_id = $2
-WHERE id = $1
-RETURNING *;
+LIMIT $2
+OFFSET $3;
 
