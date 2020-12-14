@@ -204,6 +204,130 @@ WHERE id = $1
 RETURNING *;
 ```
 
+### unit test
+
+Create `db/sqlc/main_test.go`
+
+```
+package db
+
+import (
+	"database/sql"
+	"log"
+	"os"
+	"testing"
+
+	_ "github.com/lib/pq"
+)
+
+const (
+	dbDriver = "postgres"
+	dbSource = "postgresql://root:like@localhost:5432/bank?sslmode=disable"
+)
+
+var testQueries *Queries
+
+func TestMain(m *testing.M) {
+	conn, err := sql.Open(dbDriver, dbSource)
+	if err != nil {
+		log.Fatal("cannot connect to db:", err)
+	}
+
+	testQueries = New(conn)
+
+	os.Exit(m.Run())
+
+}
+
+```
+
+Need install pq, testify
+
+```
+go get github.com/lib/pq
+go get github.com/stretchr/testify
+```
+
+Create file `db/sqlc/account_test.go`
+
+```
+package db
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestCreateAccount(t *testing.T) {
+	arg := CreateAccountParams{
+		Owner:    "tom",
+		Balance:  100,
+		Currency: "USD",
+	}
+
+	account, err := testQueries.CreateAccount(context.Background(), arg)
+	require.NoError(t, err)
+	require.NotEmpty(t, account)
+
+	require.Equal(t, arg.Owner, account.Owner)
+	require.Equal(t, arg.Balance, account.Balance)
+	require.Equal(t, arg.Currency, account.Currency)
+
+	require.NotZero(t, account.ID)
+	require.NotZero(t, account.CreatedAt)
+}
+
+```
+
+Random data 
+
+Create a `util` finder and `random.go` file
+
+```go
+package util
+const alphabet = "abcdefgijklmnopqrstuvwxyz"
+func init() {}
+func RandomInt(min, max int64) int64 {}
+func RandomString(n int) string {}
+func RandomOwner() string {}
+func RandomMoney() int64 {}
+func RandomCurrency() string {}
+```
+
+Finish Account test
+
+```go
+package db
+
+createRandomAccount(t *testing.T) Account {}
+func TestCreateAccount(t *testing.T) {}
+func TestGetAccount(t *testing.T) {}
+func TestDeleteAccount(t *testing.T) {}
+func TestListAccounts(t *testing.T) {}
+```
+
+Add entry and transfer test
+
+```go
+package db
+
+func createRandomEntry(t *testing.T, account Account) Entry {}
+func TestCreateEntry(t *testing.T) {}
+func TestGetEntry(t *testing.T) {}
+func TestListEntries(t *testing.T) {}
+```
+
+```go
+package db
+
+func createRandomTransfer(t *testing.T, account1, account2 Account) Transfer {}
+func TestCreateTransfer(t *testing.T) {}
+func TestGetTransfer(t *testing.T) {}
+func TestListTransfers(t *testing.T) {}
+```
+
 
 
 
