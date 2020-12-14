@@ -34,9 +34,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteAccountStmt, err = db.PrepareContext(ctx, deleteAccount); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteAccount: %w", err)
 	}
-	if q.deleteTransferStmt, err = db.PrepareContext(ctx, deleteTransfer); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteTransfer: %w", err)
-	}
 	if q.getAccountStmt, err = db.PrepareContext(ctx, getAccount); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAccount: %w", err)
 	}
@@ -81,11 +78,6 @@ func (q *Queries) Close() error {
 	if q.deleteAccountStmt != nil {
 		if cerr := q.deleteAccountStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteAccountStmt: %w", cerr)
-		}
-	}
-	if q.deleteTransferStmt != nil {
-		if cerr := q.deleteTransferStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteTransferStmt: %w", cerr)
 		}
 	}
 	if q.getAccountStmt != nil {
@@ -166,7 +158,6 @@ type Queries struct {
 	createEntryStmt    *sql.Stmt
 	createTransferStmt *sql.Stmt
 	deleteAccountStmt  *sql.Stmt
-	deleteTransferStmt *sql.Stmt
 	getAccountStmt     *sql.Stmt
 	getEntryStmt       *sql.Stmt
 	getTransferStmt    *sql.Stmt
@@ -184,7 +175,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createEntryStmt:    q.createEntryStmt,
 		createTransferStmt: q.createTransferStmt,
 		deleteAccountStmt:  q.deleteAccountStmt,
-		deleteTransferStmt: q.deleteTransferStmt,
 		getAccountStmt:     q.getAccountStmt,
 		getEntryStmt:       q.getEntryStmt,
 		getTransferStmt:    q.getTransferStmt,
