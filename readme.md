@@ -328,9 +328,166 @@ func TestGetTransfer(t *testing.T) {}
 func TestListTransfers(t *testing.T) {}
 ```
 
+### TransferTx
+
+create `store.go` file
+
+```go
+func (store *Store) execTx(ctx context.Context, fn func(*Queries) error) error {
+	tx, err := store.db.BeginTx(ctx, nil)
+
+	if err != nil {
+		return err
+	}
+
+	q := New(tx)
+	err = fn(q)
+	if err != nil {
+		if rbErr := q.tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("tx error: %v, rb error: %v", err, rbErr)
+		}
+		return err
+	}
+
+	return tx.Commit()
+}
+
+//...
+func (store *Store) TransferTx(ctx context.Context, arg TransferTxParams) (TransferTxResult, error) {
+	var result TransferTxResult
+
+	err := store.execTx(ctx, func(q *Queries) error {
+		var err error
+
+		result.Transfer, err = q.CreateTransfer(ctx, CreateTransferParams{
+			FromAccountID: arg.FromAccountID,
+			ToAccountID:   arg.ToAccountID,
+			Amount:        arg.Amount,
+		})
+		if err != nil {
+			return err
+		}
+
+		result.FromEntry, err = q.CreateEntry(ctx, CreateEntryParams{
+			AccountID: arg.FromAccountID,
+			Amount:    -arg.Amount,
+		})
+		if err != nil {
+			return err
+		}
+
+		result.ToEntry, err = q.CreateEntry(ctx, CreateEntryParams{
+			AccountID: arg.ToAccountID,
+			Amount:    arg.Amount,
+		})
+		if err != nil {
+			return err
+		}
+
+		// update accounts' banlance
+
+		return err
+	})
+
+	return result, err
+}
+```
+
+text transfer tx
+
+```go
+ad
+```
 
 
 
+Finish transfer tx account update
+
+```go
+account1, err := q.GetAccount(ctx, arg.FromAccountID)
+		if err != nil {
+			return err
+		}
+
+		result.FromAccount, err = q.UpdateAccount(ctx, UpdateAccountParams{
+			ID:      account1.ID,
+			Balance: account1.Balance - arg.Amount,
+		})
+		if err != nil {
+			return err
+		}
+
+		account2, err := q.GetAccount(ctx, arg.ToAccountID)
+		if err != nil {
+			return err
+		}
+
+		result.ToAccount, err = q.UpdateAccount(ctx, UpdateAccountParams{
+			ID:      account2.ID,
+			Balance: account2.Balance + arg.Amount,
+		})
+		if err != nil {
+			return err
+		}
+```
+
+Test fail？
+
+account balance error
+
+Update `query/account.sql`
+
+```sql
+-- name: GetAccountForUpdate :one
+SELECT * FROM accounts
+WHERE id = $1 LIMIT 1
+FOR UPDATE;
+```
+
+replace `GetAccount` in  `func (store *Store) TransferTx(...)` 
+
+run test，`FAIL`
+
+```
+Error Trace:	store_test.go:38
+Error:      	Received unexpected error:
+                pq: deadlock detected
+Test:       	TestTransferTx
+```
+
+`DEADLOCK` 
+
+### Handle deadlock in Golang
+
+```sql
+-- name: GetAccountForUpdate :one
+SELECT * FROM accounts
+WHERE id = $1 LIMIT 1
+FOR NO KEY UPDATE;
+```
+
+refactoring
+
+```sql
+-- name: AddAccountBalance :one
+UPDATE accounts
+SET balance = balance + sqlc.arg(amount)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+```
+
+```go
+result.FromAccount, err = q.AddAccountBalance(ctx, AddAccountBalanceParams{
+    ID:     arg.FromAccountID,
+    Amount: -arg.Amount,
+})
+if err != nil {
+    return err
+}
+```
 
 
 
+### How to avoid deadlock
+
+To learn
