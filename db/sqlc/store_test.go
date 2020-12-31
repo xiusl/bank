@@ -99,7 +99,7 @@ func TestTransferTx(t *testing.T) {
 	updateAccount2, err := testQueries.GetAccount(context.Background(), account2.ID)
 	require.NoError(t, err)
 
-	require.Equal(t, updateAccount1.Balance+int64(n)*amount, updateAccount2.Balance)
-	require.Equal(t, updateAccount2.Balance-int64(n)*amount, updateAccount1.Balance)
+	require.Equal(t, updateAccount1.Balance+int64(n)*amount, account1.Balance)
+	require.Equal(t, updateAccount2.Balance-int64(n)*amount, account2.Balance)
 
 }

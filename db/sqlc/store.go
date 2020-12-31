@@ -28,7 +28,7 @@ func (store *Store) execTx(ctx context.Context, fn func(*Queries) error) error {
 	q := New(tx)
 	err = fn(q)
 	if err != nil {
-		if rbErr := q.tx.Rollback(); rbErr != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
 			return fmt.Errorf("tx error: %v, rb error: %v", err, rbErr)
 		}
 		return err
@@ -83,6 +83,31 @@ func (store *Store) TransferTx(ctx context.Context, arg TransferTxParams) (Trans
 		}
 
 		// update accounts' banlance
+		account1, err := q.GetAccountForUpdate(ctx, arg.FromAccountID)
+		if err != nil {
+			return err
+		}
+
+		result.FromAccount, err = q.UpdateAccount(ctx, UpdateAccountParams{
+			ID:      account1.ID,
+			Balance: account1.Balance - arg.Amount,
+		})
+		if err != nil {
+			return err
+		}
+
+		account2, err := q.GetAccountForUpdate(ctx, arg.ToAccountID)
+		if err != nil {
+			return err
+		}
+
+		result.ToAccount, err = q.UpdateAccount(ctx, UpdateAccountParams{
+			ID:      account2.ID,
+			Balance: account2.Balance + arg.Amount,
+		})
+		if err != nil {
+			return err
+		}
 
 		return err
 	})
