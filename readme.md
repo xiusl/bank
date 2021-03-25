@@ -713,3 +713,24 @@ func (server *Server) listAccount(ctx *gin.Context) {
 
 curl 测试
 
+```shell
+$ curl "http://127.0.0.1:8086/accounts?page_id=1&page_size=5"
+[{"id":1,"owner":"icmztz","balance":213,"currency":"USD","created_at":"2021-02-24T03:34:11.847889Z"},{"id":2,"owner":"mzlotu","balance":181,"currency":"EUR","created_at":"2021-02-24T03:34:11.850679Z"},{"id":3,"owner":"qvidcd","balance":10,"currency":"EUR","created_at":"2021-02-24T03:34:11.853828Z"},{"id":5,"owner":"czjyob","balance":101,"currency":"CAD","created_at":"2021-02-24T03:34:11.861671Z"},{"id":6,"owner":"edzeub","balance":316,"currency":"CAD","created_at":"2021-02-24T03:34:11.863113Z"}]
+```
+
+```shell
+$ curl "http://127.0.0.1:8086/accounts/1"
+{"id":1,"owner":"icmztz","balance":213,"currency":"USD","created_at":"2021-02-24T03:34:11.847889Z"}
+```
+
+```shell
+$ curl -X POST -H "Content-Type:application/json" -d '{"owner":"tom", "currency":"USD"}' "http://127.0.0.1:8086/accounts"
+{"id":127,"owner":"tom","balance":0,"currency":"USD","created_at":"2021-03-25T10:55:27.629785Z"}
+```
+
+修改 `sqlc.yaml` 保证获取列表数据为空时返回空数组
+
+```yaml
+emit_empty_slices: true
+```
+
