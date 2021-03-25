@@ -734,3 +734,5 @@ $ curl -X POST -H "Content-Type:application/json" -d '{"owner":"tom", "currency"
 emit_empty_slices: true
 ```
 
+### Load config from file & environment variables in Golang with Viper
+
