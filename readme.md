@@ -8,7 +8,7 @@ code of [Backend master class Golang, Postgres, Docker](https://bit.ly/backendma
 
 [dbdiagram.io](https://dbdiagram.io/home)
 
-```
+```yaml
 Table accounts as A {
   id bigserial [pk]
   owner varchar [not null]
@@ -65,7 +65,7 @@ docker run --name postgres12 -p 5432:5432 -e POSTGRES_USER=root -e POSTGRES_PASS
 
 [golang-migrate](https://github.com/golang-migrate/migrate)
 
-```
+```shell
 cd bank
 mkdir -p db/migration
 brew install golang-migrate
@@ -89,7 +89,7 @@ DROP TABLE IF EXISTS accounts;
 
 Create a Makefile
 
-```
+```makefile
 postgres:
       docker run --name postgres12 -p 5432:5431 -e POSTGRES_USER=root -e POSTGRES_PASSWORD=like -d postgres:12-alpine
 	
@@ -105,7 +105,7 @@ dropdb:
 
 Migrate db
 
-```
+```shell
 migrate -path db/migration -database "postgresql://root:like@localhost:5432/bank?sslmode=disable" -verbose down
 
 migrate -path db/migration -database "postgresql://root:like@localhost:5432/bank?sslmode=disable" -verbose up
@@ -115,13 +115,13 @@ Create sql
 
 install [sqlc](https://github.com/kyleconroy/sqlc)
 
-```
+```shell
 sqlc init
 ```
 
 edit `sqlc.yaml`
 
-```
+```yaml
 version: "1"
 packages:
   - name: "db"
@@ -152,13 +152,13 @@ RETURNING *;
 
 generate
 
-```
+```shell
 sqlc generate
 ```
 
 Generate three files in `db/sqlc/`
 
-```
+```shell
 ├── db
 │   └── sqlc
 │       ├── account.sql.go
@@ -168,7 +168,7 @@ Generate three files in `db/sqlc/`
 
 init  `go` `mod`
 
-```
+```shell
 go mod init github.com/xiusl/bank
 go mod tidy
 ```
@@ -182,7 +182,7 @@ go 1.14
 
 add select, delete, update
 
-```
+```sql
 -- name: GetAccount :one
 SELECT * FROM accounts
 WHERE id = $1 LIMIT 1;
@@ -208,7 +208,7 @@ RETURNING *;
 
 Create `db/sqlc/main_test.go`
 
-```
+```go
 package db
 
 import (
@@ -250,7 +250,7 @@ go get github.com/stretchr/testify
 
 Create file `db/sqlc/account_test.go`
 
-```
+```go
 package db
 
 import (
@@ -491,3 +491,85 @@ if err != nil {
 ### How to avoid deadlock
 
 To learn
+
+https://www.youtube.com/watch?v=qn3-5wdOfoA&list=PLy_6D98if3ULEtXtNSY_2qN21VCKgoQAE&index=8
+
+### Understand isolation levels & read phenomena in MySQL & PostgreSQL via examples
+
+To learn
+
+ https://www.youtube.com/watch?v=4EajrPgJAk0&list=PLy_6D98if3ULEtXtNSY_2qN21VCKgoQAE&index=9
+
+### Setup Github Actions for Golang + Postgres to run automated tests
+
+`Github` CI
+
+```yaml
+// ci.yml
+name: ci-test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+
+    services:
+      # Label used to access the service container
+      postgres:
+        # Docker Hub image
+        image: postgres:12
+        # Provide the password for postgres
+        env:
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: like
+          POSTGRES_DB: bank
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
+    steps:
+
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ^1.13
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+
+    - name: Install Go Migrate
+      run: |
+        curl -L https://github.com/golang-migrate/migrate/releases/download/v4.14.1/migrate.linux-amd64.tar.gz | tar xvz
+        sudo mv migrate.linux-amd64 /usr/bin/migrate
+        which migrate
+
+    - name: Run Migrations
+      run: make migrateup
+
+    - name: Test
+      run: make test 
+```
+
+
+
+![20210325154759](http://pp.video.sleen.top/uPic/blog/20210325154759-DT9JIi.jpg)
+
+
+
+### Implement RESTful HTTP API in Go using Gin
+
+
+
