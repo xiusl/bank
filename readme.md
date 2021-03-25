@@ -571,5 +571,145 @@ jobs:
 
 ### Implement RESTful HTTP API in Go using Gin
 
+安装 gin，https://github.com/gin-gonic/gin#installation
 
+```shell
+go get -u github.com/gin-gonic/gin
+```
+
+![20210325155618](http://pp.video.sleen.top/uPic/blog/20210325155618-zNdeJc.jpg)
+
+项目目录下新建 `api` 目录，添加 `server.go` 文件
+
+```go
+package api
+
+import (
+    "github.com/gin-gonic/gin"
+    db "github.com/xiusl/bank/db/sqlc"
+)
+
+// Server http 服务
+type Server struct {
+    store  *db.Store
+    router *gin.Engine
+}
+
+// NewServer 创建一个新的服务，并设置路由
+func NewServer(store *db.Store) *Server {
+    server := &Server{
+        store: store,
+    }
+    router := gin.Default()
+
+    // 设置路由
+    router.POST("/accounts", server.createAccount)
+    router.GET("/accounts/:id", server.getAccount)
+    router.GET("/accounts", server.listAccount)
+
+    server.router = router
+
+    return server
+}
+
+// Start 开启服务器，address 监听的地址
+func (server *Server) Start(address string) error {
+    return server.router.Run(address)
+}
+
+// 格式化错误信息
+func errorResponse(err error) gin.H {
+    return gin.H{"error": err.Error()}
+}
+```
+
+在 `api` 目录下创建 `account.go` ，增加处理函数
+
+```go
+package api
+
+import (
+    "database/sql"
+    "net/http"
+
+    "github.com/gin-gonic/gin"
+    db "github.com/xiusl/bank/db/sqlc"
+)
+
+type CreateAccountRequest struct {
+    Owner    string `json:"owner" binding:"required"`
+    Currency string `json:"currency" binding:"required,oneof=USD EUR"`
+}
+
+func (server *Server) createAccount(ctx *gin.Context) {
+    var req CreateAccountRequest
+    if err := ctx.ShouldBindJSON(&req); err != nil {
+        ctx.JSON(http.StatusBadRequest, errorResponse(err))
+        return
+    }
+    arg := db.CreateAccountParams{
+        Owner:    req.Owner,
+        Currency: req.Currency,
+        Balance:  0,
+    }
+
+    account, err := server.store.CreateAccount(ctx, arg)
+    if err != nil {
+        ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+        return
+    }
+
+    ctx.JSON(http.StatusOK, account)
+}
+
+type getAccountRequest struct {
+    ID int64 `uri:"id" binding:"required,min=1"`
+}
+
+func (server *Server) getAccount(ctx *gin.Context) {
+    var req getAccountRequest
+    if err := ctx.ShouldBindUri(&req); err != nil {
+        ctx.JSON(http.StatusBadRequest, errorResponse(err))
+        return
+    }
+    account, err := server.store.GetAccount(ctx, req.ID)
+    if err != nil {
+        if err == sql.ErrNoRows {
+            ctx.JSON(http.StatusNotFound, errorResponse(err))
+            return
+        }
+        ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+        return
+    }
+
+    ctx.JSON(http.StatusOK, account)
+}
+
+type listAccountRequest struct {
+    PageID   int32 `form:"page_id" binding:"required,min=1"`
+    PageSize int32 `form:"page_size" binding:"required,min=5,max=10"`
+}
+
+func (server *Server) listAccount(ctx *gin.Context) {
+    var req listAccountRequest
+    if err := ctx.ShouldBindQuery(&req); err != nil {
+        ctx.JSON(http.StatusBadRequest, errorResponse(err))
+        return
+    }
+
+    arg := db.ListAccountsParams{
+        Limit:  req.PageSize,
+        Offset: (req.PageID - 1) * req.PageSize,
+    }
+    accounts, err := server.store.ListAccounts(ctx, arg)
+
+    if err != nil {
+        ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+        return
+    }
+    ctx.JSON(http.StatusOK, accounts)
+}
+```
+
+curl 测试
 

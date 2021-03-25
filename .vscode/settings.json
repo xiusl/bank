@@ -1,3 +1,7 @@
 {
-    "editor.fontSize": 16
+    "editor.fontSize": 16,
+    "workbench.preferredHighContrastColorTheme": "Default Dark+",
+    "workbench.preferredLightColorTheme": "Default Dark+",
+    "editor.detectIndentation": false,
+    "go.formatTool": "goformat"
 }
