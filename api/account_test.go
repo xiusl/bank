@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
@@ -22,10 +22,10 @@ import (
 func TestGetAccountAPI(t *testing.T) {
 	account := randomAccount()
 	testCases := []struct {
-		name         string
-		accountID    int64
-		buildStuds   func(store *mockdb.MockStore)
-		exceptStatus int
+		name          string
+		accountID     int64
+		buildStuds    func(store *mockdb.MockStore)
+		checkResponse func(t *testing.T, recorder *httptest.ResponseRecorder)
 	}{
 		{
 			name:      "OK",
@@ -36,7 +36,10 @@ func TestGetAccountAPI(t *testing.T) {
 					Return(account, nil).
 					Times(1)
 			},
-			exceptStatus: http.StatusOK,
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusOK, recorder.Code)
+				requireBodyMatchAccount(t, recorder.Body, account)
+			},
 		},
 		{
 			name:      "Not Found",
@@ -47,7 +50,9 @@ func TestGetAccountAPI(t *testing.T) {
 					Return(db.Account{}, sql.ErrNoRows).
 					Times(1)
 			},
-			exceptStatus: http.StatusNotFound,
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusNotFound, recorder.Code)
+			},
 		},
 		{
 			name:      "InternalError",
@@ -58,7 +63,9 @@ func TestGetAccountAPI(t *testing.T) {
 					Return(db.Account{}, sql.ErrConnDone).
 					Times(1)
 			},
-			exceptStatus: http.StatusInternalServerError,
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			},
 		},
 		{
 			name:      "InvalidID",
@@ -69,7 +76,9 @@ func TestGetAccountAPI(t *testing.T) {
 					GetAccount(gomock.Any(), gomock.Any()).
 					Times(0)
 			},
-			exceptStatus: http.StatusBadRequest,
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+			},
 		},
 	}
 
@@ -90,19 +99,20 @@ func TestGetAccountAPI(t *testing.T) {
 			require.NoError(t, err)
 
 			server.router.ServeHTTP(recorder, request)
-			require.Equal(t, tc.exceptStatus, recorder.Code)
+			tc.checkResponse(t, recorder)
 		})
 	}
 }
 
+// 测试创建账户 API
 func TestCreateAccountAPI(t *testing.T) {
 	account := randomAccount()
 
 	testCases := []struct {
-		name        string
-		body        gin.H
-		buildStuds  func(store *mockdb.MockStore)
-		expectSatus int
+		name          string
+		body          gin.H
+		buildStuds    func(store *mockdb.MockStore)
+		checkResponse func(recorder *httptest.ResponseRecorder)
 	}{
 		{
 			name: "OK",
@@ -121,7 +131,10 @@ func TestCreateAccountAPI(t *testing.T) {
 					Times(1).
 					Return(account, nil)
 			},
-			expectSatus: http.StatusOK,
+			checkResponse: func(recoder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusOK, recoder.Code)
+				requireBodyMatchAccount(t, recoder.Body, account)
+			},
 		},
 		{
 			name: "InvalidCurrency",
@@ -134,7 +147,9 @@ func TestCreateAccountAPI(t *testing.T) {
 					CreateAccount(gomock.Any(), gomock.Any()).
 					Times(0)
 			},
-			expectSatus: http.StatusBadRequest,
+			checkResponse: func(recoder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recoder.Code)
+			},
 		},
 		{
 			name: "InvalidOwner",
@@ -147,7 +162,9 @@ func TestCreateAccountAPI(t *testing.T) {
 					CreateAccount(gomock.Any(), gomock.Any()).
 					Times(0)
 			},
-			expectSatus: http.StatusBadRequest,
+			checkResponse: func(recoder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recoder.Code)
+			},
 		},
 		{
 			name: "InternalError",
@@ -161,7 +178,9 @@ func TestCreateAccountAPI(t *testing.T) {
 					Times(1).
 					Return(db.Account{}, sql.ErrConnDone)
 			},
-			expectSatus: http.StatusInternalServerError,
+			checkResponse: func(recoder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusInternalServerError, recoder.Code)
+			},
 		},
 	}
 
@@ -186,7 +205,7 @@ func TestCreateAccountAPI(t *testing.T) {
 			require.NoError(t, err)
 
 			server.router.ServeHTTP(recorder, request)
-			require.Equal(t, tc.expectSatus, recorder.Code)
+			tc.checkResponse(recorder)
 
 		})
 	}
@@ -194,10 +213,19 @@ func TestCreateAccountAPI(t *testing.T) {
 
 func randomAccount() db.Account {
 	return db.Account{
-		ID:        util.RandomInt(1, 1000),
-		Owner:     util.RandomOwner(),
-		Balance:   util.RandomMoney(),
-		Currency:  util.RandomCurrency(),
-		CreatedAt: time.Now(),
+		ID:       util.RandomInt(1, 1000),
+		Owner:    util.RandomOwner(),
+		Balance:  util.RandomMoney(),
+		Currency: util.RandomCurrency(),
 	}
+}
+
+func requireBodyMatchAccount(t *testing.T, body *bytes.Buffer, account db.Account) {
+	data, err := ioutil.ReadAll(body)
+	require.NoError(t, err)
+
+	var gotAccount db.Account
+	err = json.Unmarshal(data, &gotAccount)
+	require.NoError(t, err)
+	require.Equal(t, account, gotAccount)
 }
