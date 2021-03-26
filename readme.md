@@ -836,3 +836,183 @@ func TestMain(m *testing.M) {
 }
 ```
 
+### Mock DB for testing HTTP API in Go and achieve 100% coverage
+
+安装 mock https://github.com/golang/mock
+
+```
+go install github.com/golang/mock/mockgen@v1.5.0
+```
+
+执行下面命令
+
+```
+mockgen -destination db/mock/store.go github.com/xiusl/bank/db/sqlc Store
+```
+
+修改 `sql.yaml` ，使用接口形式
+
+```yaml
+emit_interface: true
+```
+
+重新 `make sqlc`
+
+在 `api` 目录下创建 `main_test.go` 
+
+```go
+package api
+
+import (
+    "os"
+    "testing"
+
+    "github.com/gin-gonic/gin"
+)
+
+func TestMain(m *testing.M) {
+    gin.SetMode(gin.TestMode)
+
+    os.Exit(m.Run())
+}
+```
+
+测试 `GetAccount`
+
+```go
+// api/account_test.go
+package api
+
+import (
+    "database/sql"
+    "fmt"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    "time"
+
+    "github.com/golang/mock/gomock"
+    "github.com/stretchr/testify/require"
+
+    mockdb "github.com/xiusl/bank/db/mock"
+    db "github.com/xiusl/bank/db/sqlc"
+    "github.com/xiusl/bank/util"
+)
+
+func TestGetAccount(t *testing.T) {
+    testCases := []struct {
+        name         string
+        accountID    int64
+        buildStuds   func(store *mockdb.MockStore)
+        exceptStatus int
+    }{
+        {
+            name:      "OK",
+            accountID: 1,
+            buildStuds: func(store *mockdb.MockStore) {
+                const id int64 = 1
+                store.EXPECT().
+                    GetAccount(gomock.Any(), gomock.Eq(id)).
+                    Return(randomAccount(id), nil).
+                    Times(1)
+            },
+            exceptStatus: http.StatusOK,
+        },
+        {
+            name:      "Not Found",
+            accountID: 2,
+            buildStuds: func(store *mockdb.MockStore) {
+                const id int64 = 2
+                store.EXPECT().
+                    GetAccount(gomock.Any(), gomock.Eq(id)).
+                    Return(db.Account{}, sql.ErrNoRows).
+                    Times(1)
+            },
+            exceptStatus: http.StatusNotFound,
+        },
+        {
+            name:      "InternalError",
+            accountID: 3,
+            buildStuds: func(store *mockdb.MockStore) {
+                const id int64 = 3
+                store.EXPECT().
+                    GetAccount(gomock.Any(), gomock.Eq(id)).
+                    Return(db.Account{}, sql.ErrConnDone).
+                    Times(1)
+            },
+            exceptStatus: http.StatusInternalServerError,
+        },
+        {
+            name:      "BadRequest",
+            accountID: 0,
+            buildStuds: func(store *mockdb.MockStore) {
+                const id int64 = 0
+                store.EXPECT().
+                    GetAccount(gomock.Any(), gomock.Any()).
+                    Times(0)
+            },
+            exceptStatus: http.StatusBadRequest,
+        },
+    }
+
+    for i := range testCases {
+        tc := testCases[i]
+        t.Run(tc.name, func(t *testing.T) {
+            ctrl := gomock.NewController(t)
+            defer ctrl.Finish()
+
+            store := mockdb.NewMockStore(ctrl)
+            tc.buildStuds(store)
+
+            server := NewServer(store)
+            recorder := httptest.NewRecorder()
+
+            url := fmt.Sprintf("/accounts/%d", tc.accountID)
+            request, err := http.NewRequest(http.MethodGet, url, nil)
+            require.NoError(t, err)
+
+            server.router.ServeHTTP(recorder, request)
+            require.Equal(t, tc.exceptStatus, recorder.Code)
+        })
+    }
+}
+
+func randomAccount(id int64) db.Account {
+    return db.Account{
+        ID:        id,
+        Owner:     util.RandomOwner(),
+        Balance:   util.RandomMoney(),
+        Currency:  util.RandomCurrency(),
+        CreatedAt: time.Now(),
+    }
+}
+```
+
+测试 `make test`
+
+```shell
+=== RUN   TestGetAccount
+=== RUN   TestGetAccount/OK
+[GIN] 2021/03/26 - 10:53:05 | 200 |     359.804µs |                 | GET      "/accounts/1"
+=== RUN   TestGetAccount/Not_Found
+[GIN] 2021/03/26 - 10:53:05 | 404 |       22.98µs |                 | GET      "/accounts/2"
+=== RUN   TestGetAccount/InternalError
+[GIN] 2021/03/26 - 10:53:05 | 500 |       29.27µs |                 | GET      "/accounts/3"
+=== RUN   TestGetAccount/BadRequest
+[GIN] 2021/03/26 - 10:53:05 | 400 |      31.383µs |                 | GET      "/accounts/0"
+--- PASS: TestGetAccount (0.00s)
+    --- PASS: TestGetAccount/OK (0.00s)
+    --- PASS: TestGetAccount/Not_Found (0.00s)
+    --- PASS: TestGetAccount/InternalError (0.00s)
+    --- PASS: TestGetAccount/BadRequest (0.00s)
+PASS
+coverage: 48.8% of statements
+ok      github.com/xiusl/bank/api       (cached)        coverage: 48.8% of statements
+```
+
+#### Mock 的使用
+
+TODO
+
+#### 测试 CreateAccount
+
