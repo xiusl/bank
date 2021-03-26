@@ -736,3 +736,103 @@ emit_empty_slices: true
 
 ### Load config from file & environment variables in Golang with Viper
 
+安装 `viper` ，https://github.com/spf13/viper
+
+```shell
+go get github.com/spf13/viper
+```
+
+在项目目录下新增 `app.env` 文件
+
+```yaml
+DB_DRIVER=postgres
+DB_SOURCE=postgresql://root:loke@localhost:5432/back?sslmode=disable
+SERVER_ADDRESS=0.0.0.0:8086
+```
+
+在 `util` 目录下增加 `config.go` 用来解析 `app.env`，
+
+```go
+package util
+
+import "github.com/spf13/viper"
+
+type Config struct {
+    DBDriver      string `mapstructure:"DB_DRIVER"`
+    DBSource      string `mapstructure:"DB_SOURCE"`
+    ServerAddress string `mapstructure:"SERVER_ADDRESS"`
+}
+
+func LoadConfig(path string) (config Config, err error) {
+    viper.AddConfigPath(path)
+    viper.SetConfigName("app")
+    viper.SetConfigType("env")
+
+    viper.AutomaticEnv()
+
+    if err = viper.ReadInConfig(); err != nil {
+        return
+    }
+
+    err = viper.Unmarshal(&config)
+    return
+}
+```
+
+修改 `main.go`
+
+```go
+package main
+
+import (
+    "database/sql"
+    "log"
+
+    _ "github.com/lib/pq"
+    "github.com/xiusl/bank/api"
+    db "github.com/xiusl/bank/db/sqlc"
+    "github.com/xiusl/bank/util"
+)
+
+func main() {
+    config, err := util.LoadConfig(".")
+    if err != nil {
+        log.Fatal("cannot load config:", err)
+        return
+    }
+    conn, err := sql.Open(config.DBDriver, config.DBSource)
+    if err != nil {
+        log.Fatal("cannot connect to db:", err)
+    }
+
+    store := db.NewStore(conn)
+    server := api.NewServer(store)
+
+    err = server.Start(config.ServerAddress)
+    if err != nil {
+        log.Fatal("connot start server:", err)
+    }
+}
+```
+
+完善`sqlc/main_test.go` 文件
+
+```go
+func TestMain(m *testing.M) {
+    config, err:= util.LoadConfig("../..")
+    if err != nil {
+        log.Fatal("connot load config:", err)
+        return
+    }
+
+    testDB, err = sql.Open(config.DBDriver, config.DBSource)
+    if err != nil {
+        log.Fatal("cannot connect to db:", err)
+    }
+
+    testQueries = New(testDB)
+
+    os.Exit(m.Run())
+}
+```
+
