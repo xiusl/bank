@@ -2203,3 +2203,328 @@ WHERE username = $1 LIMIT 1;
 
 ### User api
 
+```go
+package api
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
+	db "github.com/xiusl/bank/db/sqlc"
+	"github.com/xiusl/bank/util"
+)
+
+type createUserRequest struct {
+	Username string `json:"username" binding:"required,alphanum"`
+	Password string `json:"password" binding:"required,min=6"`
+	FullName string `json:"full_name" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
+}
+
+type createUserResponse struct {
+	Username          string    `json:"username"`
+	FullName          string    `json:"full_name"`
+	Email             string    `json:"email"`
+	PasswordChangedAt time.Time `json:"password_changed_at"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+func (server *Server) createUser(ctx *gin.Context) {
+	var req createUserRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	hashedPassword, err := util.HashPassword(req.Password)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	arg := db.CreateUserParams{
+		Username:       req.Username,
+		FullName:       req.FullName,
+		Email:          req.Email,
+		HashedPassword: hashedPassword,
+	}
+
+	user, err := server.store.CreateUser(ctx, arg)
+	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok {
+			switch pqErr.Code.Name() {
+			case "unique_violation":
+				ctx.JSON(http.StatusForbidden, errorResponse(err))
+				return
+			}
+		}
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	rsp := createUserResponse{
+		Username:          user.Username,
+		FullName:          user.FullName,
+		Email:             user.Email,
+		PasswordChangedAt: user.PasswordChangedAt,
+		CreatedAt:         user.CreatedAt,
+	}
+
+	ctx.JSON(http.StatusOK, rsp)
+}
+
+```
+
+#### User api test
+
+```go
+package api
+
+import (
+	"bytes"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
+	"github.com/lib/pq"
+	"github.com/stretchr/testify/require"
+	mockdb "github.com/xiusl/bank/db/mock"
+	db "github.com/xiusl/bank/db/sqlc"
+	"github.com/xiusl/bank/util"
+)
+
+func TestCreateUserAPI(t *testing.T) {
+	user, password := randomUser(t)
+	testCases := []struct {
+		name          string
+		body          gin.H
+		buildStubs    func(store *mockdb.MockStore)
+		checkResponse func(recorder *httptest.ResponseRecorder)
+	}{
+		{
+			name: "OK",
+			body: gin.H{
+				"username":  user.Username,
+				"password":  password,
+				"full_name": user.FullName,
+				"email":     user.Email,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().
+                	CreateUser(gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(user, nil)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusOK, recorder.Code)
+				requireBodyMatchUser(t, recorder.Body, user)
+			},
+		},
+		{
+			name: "InternalError",
+			body: gin.H{
+				"username":  user.Username,
+				"full_name": user.FullName,
+				"email":     user.Email,
+				"password":  password,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Times(1).Return(db.User{}, sql.ErrConnDone)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			},
+		},
+		{
+			name: "InvalidUserName",
+			body: gin.H{
+				"username":  "invalidname#1",
+				"full_name": user.FullName,
+				"email":     user.Email,
+				"password":  password,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Times(0)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+			},
+		},
+		{
+			name: "InvalidEmail",
+			body: gin.H{
+				"username":  user.Username,
+				"full_name": user.FullName,
+				"email":     "abc",
+				"password":  password,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Times(0)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+			},
+		},
+		{
+			name: "ToShortPassword",
+			body: gin.H{
+				"username":  user.Username,
+				"full_name": user.FullName,
+				"email":     user.Email,
+				"password":  "",
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Times(0)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+			},
+		},
+		{
+			name: "DuplicateUsername",
+			body: gin.H{
+				"username":  user.Username,
+				"full_name": user.FullName,
+				"email":     user.Email,
+				"password":  password,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Times(1).Return(db.User{}, &pq.Error{Code: "23505"})
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusForbidden, recorder.Code)
+			},
+		},
+	}
+
+	for i := range testCases {
+		tc := testCases[i]
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			store := mockdb.NewMockStore(ctrl)
+			tc.buildStubs(store)
+
+			server := NewServer(store)
+			recorder := httptest.NewRecorder()
+
+			data, err := json.Marshal(tc.body)
+			require.NoError(t, err)
+
+			url := "/users"
+			request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(data))
+			require.NoError(t, err)
+
+			server.router.ServeHTTP(recorder, request)
+			tc.checkResponse(recorder)
+
+		})
+	}
+}
+
+func randomUser(t *testing.T) (user db.User, password string) {
+	password = util.RandomString(6)
+	hashedPassword, err := util.HashPassword(password)
+	require.NoError(t, err)
+
+	user = db.User{
+		Username:       util.RandomOwner(),
+		FullName:       util.RandomOwner(),
+		HashedPassword: hashedPassword,
+		Email:          util.RandomEmail(),
+	}
+	return
+}
+
+func requireBodyMatchUser(t *testing.T, body *bytes.Buffer, user db.User) {
+	data, err := ioutil.ReadAll(body)
+	require.NoError(t, err)
+
+	var gotUser db.User
+	err = json.Unmarshal(data, &gotUser)
+
+	require.NoError(t, err)
+	require.Equal(t, user.Username, gotUser.Username)
+	require.Equal(t, user.FullName, gotUser.FullName)
+	require.Equal(t, user.Email, gotUser.Email)
+	require.Empty(t, gotUser.HashedPassword)
+}
+
+```
+
+
+
+
+
+#### custom mock matcher
+
+```go
+type eqCreateUserParamsMatcher struct {
+	arg      db.CreateUserParams
+	password string
+}
+
+func (e eqCreateUserParamsMatcher) Matches(x interface{}) bool {
+	arg, ok := x.(db.CreateUserParams)
+	if !ok {
+		return false
+	}
+
+	err := util.CheckPassword(e.password, arg.HashedPassword)
+	if err != nil {
+		return false
+	}
+
+	e.arg.HashedPassword = arg.HashedPassword
+	return reflect.DeepEqual(e.arg, arg)
+}
+
+func (e eqCreateUserParamsMatcher) String() string {
+	return fmt.Sprintf("matches arg %v and password %v", e.arg, e.password)
+}
+
+func EqCreateUserParams(arg db.CreateUserParams, password string) gomock.Matcher {
+	return eqCreateUserParamsMatcher{arg, password}
+}
+
+
+/*
+{
+    name: "OK",
+    body: gin.H{
+        "username":  user.Username,
+        "password":  password,
+        "full_name": user.FullName,
+        "email":     user.Email,
+    },
+    buildStubs: func(store *mockdb.MockStore) {
+
+        arg := db.CreateUserParams{
+            Username: user.Username,
+            FullName: user.FullName,
+            Email:    user.Email,
+        }
+
+        store.EXPECT().
+            CreateUser(gomock.Any(), EqCreateUserParams(arg, password)).
+            Times(1).
+            Return(user, nil)
+    },
+    checkResponse: func(recorder *httptest.ResponseRecorder) {
+        require.Equal(t, http.StatusOK, recorder.Code)
+        requireBodyMatchUser(t, recorder.Body, user)
+    },
+},
+*/
+```
+
