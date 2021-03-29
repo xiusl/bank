@@ -1998,3 +1998,201 @@ func TestTransferAPI(t *testing.T) {
 }
 ```
 
+### 添加 User 表
+
+```sql
+
+Table users as U {
+  username varchar [pk]
+  hashed_password varchar [not null]
+  full_name varchar [not null]
+  email varchar [unique, not null]
+  password_changed_at timestamptz [not null, default: `0001-01-01 00:00:00Z`]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table accounts as A {
+  id bigserial [pk]
+  owner varchar [ref: > U.username, not null]
+  balance bigint [not null]
+  currency varchar [not null]
+  created_at timestamptz [not null, default: `now()`]
+  
+  Indexes {
+    owner
+    (owner, currency) [unique]
+  }
+}
+
+Table entries {
+  id bigserial [pk]
+  account_id bigint [ref: > A.id, not null]
+  amount bigint [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    account_id
+  }
+}
+
+Table transfers {
+  id bigserial [pk]
+  from_account_id bigint [ref: > A.id, not null]
+  to_account_id bigint [ref: > A.id, not null]
+  amount bigint [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    from_account_id
+    to_account_id
+    (from_account_id, to_account_id)
+  }
+}
+```
+
+![20210329110443](http://pp.video.sleen.top/uPic/blog/20210329110443-LvkbaT.jpg)
+
+PostgreSQL
+
+```sql
+CREATE TABLE "users" (
+  "username" varchar PRIMARY KEY,
+  "hashed_password" varchar NOT NULL,
+  "full_name" varchar NOT NULL,
+  "email" varchar UNIQUE NOT NULL,
+  "password_changed_at" timestamptz NOT NULL DEFAULT ('0001-01-01 00:00:00+00'),
+  "created_at" timestamptz NOT NULL DEFAULT (now())
+);
+
+CREATE TABLE "accounts" (
+  "id" bigserial PRIMARY KEY,
+  "owner" varchar NOT NULL,
+  "balance" bigint NOT NULL,
+  "currency" varchar NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT (now())
+);
+
+CREATE TABLE "entries" (
+  "id" bigserial PRIMARY KEY,
+  "account_id" bigint NOT NULL,
+  "amount" bigint NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT (now())
+);
+
+CREATE TABLE "transfers" (
+  "id" bigserial PRIMARY KEY,
+  "from_account_id" bigint NOT NULL,
+  "to_account_id" bigint NOT NULL,
+  "amount" bigint NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT (now())
+);
+
+ALTER TABLE "accounts" ADD FOREIGN KEY ("owner") REFERENCES "users" ("username");
+
+ALTER TABLE "entries" ADD FOREIGN KEY ("account_id") REFERENCES "accounts" ("id");
+
+ALTER TABLE "transfers" ADD FOREIGN KEY ("from_account_id") REFERENCES "accounts" ("id");
+
+ALTER TABLE "transfers" ADD FOREIGN KEY ("to_account_id") REFERENCES "accounts" ("id");
+
+CREATE INDEX ON "accounts" ("owner");
+
+CREATE UNIQUE INDEX ON "accounts" ("owner", "currency");
+
+CREATE INDEX ON "entries" ("account_id");
+
+CREATE INDEX ON "transfers" ("from_account_id");
+
+CREATE INDEX ON "transfers" ("to_account_id");
+
+CREATE INDEX ON "transfers" ("from_account_id", "to_account_id");
+
+```
+
+创建一个新迭代的数据库迁移
+
+```shell
+migrate create -ext sql -dir db/migration -seq add_user 
+
+- db 
+    - mirgration
+        - 000002_add_user.down.sql
+        - 000002_add_user.up.sql
+```
+
+编辑迁移代码
+
+```sql
+// 000002_add_user.down.sql
+ALTER TABLE IF EXISTS "accounts" DROP CONSTRAINT IF EXISTS "owner_currency_key";
+
+ALTER TABLE IF EXISTS "accounts" DROP CONSTRAINT IF EXISTS "accounts_owner_fkey";
+
+DROP TABLE IF EXISTS "users";
+```
+
+```sql
+// 000001_add_user_up.sql
+CREATE TABLE "users" (
+  "username" varchar PRIMARY KEY,
+  "hashed_password" varchar NOT NULL,
+  "full_name" varchar NOT NULL,
+  "email" varchar UNIQUE NOT NULL,
+  "password_changed_at" timestamptz NOT NULL DEFAULT ('0001-01-01 00:00:00+00'),
+  "created_at" timestamptz NOT NULL DEFAULT (now())
+);
+
+
+ALTER TABLE "accounts" ADD FOREIGN KEY ("owner") REFERENCES "users" ("username");
+
+// 一个用户只能拥有一种币种的账号
+// CREATE UNIQUE INDEX ON "accounts" ("owner", "currency");
+ALTER TABLE "accounts" ADD CONSTRAINT "owner_currency_key" UNIQUE ("owner", "currency");
+
+```
+
+进行数据库迁移
+
+```shell
+migrate -path db/migration -database "postgresql://root:like@localhost:5432/bank?sslmode=disable" -verbose up
+2021/03/29 11:23:25 error: Dirty database version 2. Fix and force version.
+make: *** [migrateup] Error 1
+```
+
+出现错误 `Dirty database` ，手动修改 `schema_migrations` 的 `drity` 为 `FALSE`
+
+再次执行 `make migratedown` `make migrateup`
+
+为 `makefile` 新增命令
+
+```makefile
+migrateup1:
+	migrate -path db/migration -database "postgresql://root:like@localhost:5432/bank?sslmode=disable" -verbose up 1
+
+migratedown1:
+	migrate -path db/migration -database "postgresql://root:like@localhost:5432/bank?sslmode=disable" -verbose down 1
+
+.PHONY: migrateup1, migratedown1
+```
+
+创建 `query/user.sql` 
+
+```sql
+-- name: CreateUser :one
+INSERT INTO users (
+    username,
+    hashed_password,
+    full_name,
+    email
+) VALUES (
+    $1, $2, $3, $4
+) RETURNING *;
+
+-- name: GetUser :one
+SELECT * FROM users
+WHERE username = $1 LIMIT 1;
+```
+
+执行 `make sqlc`
+
+为 `user.sql.go`
