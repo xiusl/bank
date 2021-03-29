@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/o1egl/paseto"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -27,29 +26,25 @@ func NewPasetoMaker(symmetricKey string) (Maker, error) {
 }
 
 func (maker *PasetoMaker) CreateToken(username string, duration time.Duration) (string, error) {
-	tokenID, err := uuid.NewRandom()
+	payload, err := NewPayload(username, duration)
 	if err != nil {
 		return "", err
 	}
 
-	token := Payload{
-		ID:        tokenID,
-		Username:  username,
-		IssuedAt:  time.Now(),
-		ExpiredAt: time.Now().Add(duration),
-	}
-	return maker.paseto.Encrypt(maker.symmetricKey, token, nil)
+	return maker.paseto.Encrypt(maker.symmetricKey, payload, nil)
 }
 
-func (maker *PasetoMaker) VerifyToken(tokenString string) (*Payload, error) {
-	token := &Payload{}
+func (maker *PasetoMaker) VerifyToken(token string) (*Payload, error) {
+	payload := &Payload{}
 
-	err := maker.paseto.Decrypt(tokenString, maker.symmetricKey, token, nil)
+	err := maker.paseto.Decrypt(token, maker.symmetricKey, token, nil)
 	if err != nil {
 		return nil, ErrInvalidToken
 	}
-	if time.Now().After(token.ExpiredAt) {
-		return nil, ErrExpiredToken
+
+	if err = payload.Valid(); err != nil {
+		return nil, err
 	}
-	return token, nil
+
+	return payload, nil
 }
