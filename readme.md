@@ -2196,3 +2196,10 @@ WHERE username = $1 LIMIT 1;
 执行 `make sqlc`
 
 为 `user.sql.go`
+
+
+
+
+
+### User api
+
