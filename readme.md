@@ -2528,3 +2528,13 @@ func EqCreateUserParams(arg db.CreateUserParams, password string) gomock.Matcher
 */
 ```
 
+### 增加用户登录 API
+
+添加 https://github.com/o1egl/paseto , https://github.com/aead/chacha20poly1305 ，https://github.com/google/uuid
+
+```
+go get -u github.com/o1egl/paseto
+go get -u github.com/aead/chacha20poly1305
+go get -u github.com/google/uuid
+```
+
