@@ -2643,3 +2643,150 @@ curl -X POST -H "Content-Type:application/json" -d '{"username":"jack", "passwor
 
 使用 `token` 包
 
+```go
+// token/token_maker.go
+// 封装 Maker 接口，便于以后切换 token 生成规则
+package token
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+var (
+	ErrInvalidToken = fmt.Errorf("token is invalid")
+	ErrExpiredToken = fmt.Errorf("token has expored")
+)
+
+type Payload struct {
+	ID        uuid.UUID `json:"id"`
+	Username  string    `json:"username"`
+	IssuedAt  time.Time `json:"issued_at"`
+	ExpiredAt time.Time `json:"expired_ta"`
+}
+
+type Maker interface {
+	CreateToken(username string, duration time.Duration) (string, error)
+	VerifyToken(tokenString string) (*Payload, error)
+}
+```
+
+使用 `paseto` 生成和校验 `token` 
+
+```go
+// token/paseto_token.go
+package token
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/o1egl/paseto"
+	"golang.org/x/crypto/chacha20poly1305"
+)
+
+type PasetoMaker struct {
+	paseto       *paseto.V2
+	symmetricKey []byte
+}
+
+func NewPasetoMaker(symmetricKey string) (Maker, error) {
+	if len(symmetricKey) != chacha20poly1305.KeySize {
+		return nil, fmt.Errorf("invalid key size: must be %d characters", chacha20poly1305.KeySize)
+	}
+
+	maker := &PasetoMaker{
+		paseto:       paseto.NewV2(),
+		symmetricKey: []byte(symmetricKey),
+	}
+	return maker, nil
+}
+
+func (maker *PasetoMaker) CreateToken(username string, duration time.Duration) (string, error) {
+	tokenID, err := uuid.NewRandom()
+	if err != nil {
+		return "", err
+	}
+
+	token := Payload{
+		ID:        tokenID,
+		Username:  username,
+		IssuedAt:  time.Now(),
+		ExpiredAt: time.Now().Add(duration),
+	}
+	return maker.paseto.Encrypt(maker.symmetricKey, token, nil)
+}
+
+func (maker *PasetoMaker) VerifyToken(tokenString string) (*Payload, error) {
+	token := &Payload{}
+
+	err := maker.paseto.Decrypt(tokenString, maker.symmetricKey, token, nil)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	if time.Now().After(token.ExpiredAt) {
+		return nil, ErrExpiredToken
+	}
+	return token, nil
+}
+
+```
+
+为 `paseto_token` 编写测试
+
+```go
+// token/paseto_token
+package token
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/xiusl/bank/util"
+)
+
+func TestPasetoMaker(t *testing.T) {
+	maker, err := NewPasetoMaker(util.RandomString(32))
+	require.NoError(t, err)
+
+	username := util.RandomOwner()
+	duration := time.Minute
+	issueAt := time.Now()
+	expiredAt := issueAt.Add(duration)
+
+	tokenString, err := maker.CreateToken(username, duration)
+	require.NoError(t, err)
+	require.NotEmpty(t, tokenString)
+
+	token, err := maker.VerifyToken(tokenString)
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+
+	require.NotZero(t, token.ID)
+	require.Equal(t, username, token.Username)
+	require.WithinDuration(t, issueAt, token.IssuedAt, time.Second)
+	require.WithinDuration(t, expiredAt, token.ExpiredAt, time.Second)
+}
+
+func TestExpiredPasetoToken(t *testing.T) {
+	maker, err := NewPasetoMaker(util.RandomString(32))
+	require.NoError(t, err)
+
+	username := util.RandomOwner()
+	duration := -time.Minute
+
+	tokenString, err := maker.CreateToken(username, duration)
+	require.NoError(t, err)
+	require.NotEmpty(t, tokenString)
+
+	token, err := maker.VerifyToken(tokenString)
+	require.Error(t, err)
+	require.EqualError(t, err, ErrExpiredToken.Error())
+	require.Empty(t, token)
+}
+```
+
