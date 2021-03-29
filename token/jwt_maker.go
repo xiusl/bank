@@ -1,16 +1,22 @@
 package token
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
 )
+
+const minSecretKeySize = 32
 
 type JWTMaker struct {
 	secretKey string
 }
 
 func NewJWTMaker(secretKey string) (Maker, error) {
+	if len(secretKey) < minSecretKeySize {
+		return nil, fmt.Errorf("invalid key size: must be as least %d characters", minSecretKeySize)
+	}
 	return &JWTMaker{secretKey}, nil
 }
 
