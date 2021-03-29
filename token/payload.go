@@ -1,15 +1,15 @@
 package token
 
 import (
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 var (
-	ErrInvalidToken = fmt.Errorf("token is invalid")
-	ErrExpiredToken = fmt.Errorf("token has expored")
+	ErrInvalidToken = errors.New("token is invalid")  //fmt.Errorf("token is invalid")
+	ErrExpiredToken = errors.New("token has expired") //fmt.Errorf("token has expored")
 )
 
 type Payload struct {
