@@ -2792,3 +2792,60 @@ func TestExpiredPasetoToken(t *testing.T) {
 
 #### 使用 JWT 进行权限控制
 
+`go-jwt` https://github.com/dgrijalva/jwt-go
+
+```
+go get -u github.com/dgrijalva/jwt-go
+```
+
+```go
+package token
+
+import (
+	"time"
+
+	"github.com/dgrijalva/jwt-go"
+)
+
+type JWTMaker struct {
+	secretKey string
+}
+
+func NewJWTMaker(secretKey string) (Maker, error) {
+	return &JWTMaker{secretKey}, nil
+}
+
+func (maker *JWTMaker) CreateToken(username string, duration time.Duration) (string, error) {
+	payload, err := NewPayload(username, duration)
+	if err != nil {
+		return "", err
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, payload)
+	return token.SignedString([]byte(maker.secretKey))
+}
+
+func (maker *JWTMaker) VerifyToken(token string) (*Payload, error) {
+	keyFunc := func(token *jwt.Token) (interface{}, error) {
+		_, ok := token.Method.(*jwt.SigningMethodHMAC)
+		if !ok {
+			return nil, ErrInvalidToken
+		}
+		return []byte(maker.secretKey), nil
+	}
+
+	parsedToken, err := jwt.ParseWithClaims(token, &Payload{}, keyFunc)
+	if err != nil {
+		return nil, err
+	}
+
+	payload, ok := parsedToken.Claims.(*Payload)
+	if !ok {
+		return nil, ErrInvalidToken
+	}
+
+	return payload, nil
+}
+
+```
+
