@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
 	db "github.com/xiusl/bank/db/sqlc"
+	"github.com/xiusl/bank/token"
 	"github.com/xiusl/bank/util"
 )
 
@@ -15,12 +16,12 @@ type Server struct {
 	store      db.Store
 	router     *gin.Engine
 	config     util.Config
-	tokenMaker *util.TokenMaker
+	tokenMaker token.Maker
 }
 
 // NewServer 创建一个新的服务，并设置路由
 func NewServer(config util.Config, store db.Store) (*Server, error) {
-	tokenMaker, err := util.NewTokenMaker(config.TokenSymmertricKey)
+	tokenMaker, err := token.NewPasetoMaker(config.TokenSymmertricKey)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create token maker: %w", err)
 	}
