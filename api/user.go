@@ -68,3 +68,7 @@ func (server *Server) createUser(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, rsp)
 }
+
+func (server *Server) loginUser(ctx *gin.Context) {
+
+}
