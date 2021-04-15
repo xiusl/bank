@@ -96,6 +96,36 @@ func TestGetAccountAPI(t *testing.T) {
                 require.Equal(t, http.StatusBadRequest, recorder.Code)
             },
         },
+        {
+            name:      "UnAuthorization",
+            accountID: 0,
+            setupAuth: func(t *testing.T, request *http.Request, tokenMaker token.Maker) {
+            },
+            buildStuds: func(store *mockdb.MockStore) {
+                store.EXPECT().
+                    GetAccount(gomock.Any(), gomock.Any()).
+                    Times(0)
+            },
+            checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+                require.Equal(t, http.StatusUnauthorized, recorder.Code)
+            },
+        },
+        {
+            name:      "InvalidUserName",
+            accountID: account.ID,
+            setupAuth: func(t *testing.T, request *http.Request, tokenMaker token.Maker) {
+                addAuthorization(t, request, tokenMaker, authorizationTypeBearer, "invalid", time.Minute)
+            },
+            buildStuds: func(store *mockdb.MockStore) {
+                store.EXPECT().
+                    GetAccount(gomock.Any(), gomock.Eq(account.ID)).
+                    Times(1).
+                    Return(account, nil)
+            },
+            checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+                require.Equal(t, http.StatusUnauthorized, recorder.Code)
+            },
+        },
     }
 
     for i := range testCases {
@@ -210,6 +240,23 @@ func TestCreateAccountAPI(t *testing.T) {
             },
             checkResponse: func(recoder *httptest.ResponseRecorder) {
                 require.Equal(t, http.StatusInternalServerError, recoder.Code)
+            },
+        },
+        {
+            name: "UnAuthorization",
+            body: gin.H{
+                "owner":    account.Owner,
+                "currency": account.Currency,
+            },
+            setupAuth: func(t *testing.T, request *http.Request, tokenMaker token.Maker) {
+            },
+            buildStuds: func(store *mockdb.MockStore) {
+                store.EXPECT().
+                    CreateAccount(gomock.Any(), gomock.Any()).
+                    Times(0)
+            },
+            checkResponse: func(recoder *httptest.ResponseRecorder) {
+                require.Equal(t, http.StatusUnauthorized, recoder.Code)
             },
         },
     }
