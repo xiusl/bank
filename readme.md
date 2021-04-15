@@ -15,7 +15,7 @@ Table accounts as A {
   balance bigint [not null]
   currency varchar [not null]
   created_at timestamptz [not null, default: `now()`]
-  
+
   Indexes {
     owner
   }
@@ -55,7 +55,7 @@ Table transfers {
 docker pull postgres:12-alpine
 ```
 
-- Start  
+- Start
 
 ```sh
 docker run --name postgres12 -p 5432:5432 -e POSTGRES_USER=root -e POSTGRES_PASSWORD=like -d postgres:12-alpine
@@ -76,7 +76,7 @@ migrate create -ext sql -dir db/migration -seq init_schema
     └── migration
         ├── 000001_init_schema.down.sql
         └── 000001_init_schema.up.sql
-        
+
 ```
 
 `vim db/migration/000001_init_schema.down.sql`
@@ -92,13 +92,13 @@ Create a Makefile
 ```makefile
 postgres:
       docker run --name postgres12 -p 5432:5431 -e POSTGRES_USER=root -e POSTGRES_PASSWORD=like -d postgres:12-alpine
-	
+
 createdb:
       docker exec -it postgres12 createdb --username=root --owner=root bank
 
 dropdb:
       docker exec -it postgres12 dropdb bank
-    
+
 .PHONY: postgres createdb dropdb
 
 ```
@@ -281,7 +281,7 @@ func TestCreateAccount(t *testing.T) {
 
 ```
 
-Random data 
+Random data
 
 Create a `util` finder and `random.go` file
 
@@ -444,7 +444,7 @@ WHERE id = $1 LIMIT 1
 FOR UPDATE;
 ```
 
-replace `GetAccount` in  `func (store *Store) TransferTx(...)` 
+replace `GetAccount` in  `func (store *Store) TransferTx(...)`
 
 run test，`FAIL`
 
@@ -455,7 +455,7 @@ Error:      	Received unexpected error:
 Test:       	TestTransferTx
 ```
 
-`DEADLOCK` 
+`DEADLOCK`
 
 ### Handle deadlock in Golang
 
@@ -560,7 +560,7 @@ jobs:
       run: make migrateup
 
     - name: Test
-      run: make test 
+      run: make test
 ```
 
 
@@ -858,7 +858,7 @@ emit_interface: true
 
 重新 `make sqlc`
 
-在 `api` 目录下创建 `main_test.go` 
+在 `api` 目录下创建 `main_test.go`
 
 ```go
 package api
@@ -2017,7 +2017,7 @@ Table accounts as A {
   balance bigint [not null]
   currency varchar [not null]
   created_at timestamptz [not null, default: `now()`]
-  
+
   Indexes {
     owner
     (owner, currency) [unique]
@@ -2112,9 +2112,9 @@ CREATE INDEX ON "transfers" ("from_account_id", "to_account_id");
 创建一个新迭代的数据库迁移
 
 ```shell
-migrate create -ext sql -dir db/migration -seq add_user 
+migrate create -ext sql -dir db/migration -seq add_user
 
-- db 
+- db
     - mirgration
         - 000002_add_user.down.sql
         - 000002_add_user.up.sql
@@ -2175,7 +2175,7 @@ migratedown1:
 .PHONY: migrateup1, migratedown1
 ```
 
-创建 `query/user.sql` 
+创建 `query/user.sql`
 
 ```sql
 -- name: CreateUser :one
@@ -2673,7 +2673,7 @@ type Maker interface {
 }
 ```
 
-使用 `paseto` 生成和校验 `token` 
+使用 `paseto` 生成和校验 `token`
 
 ```go
 // token/paseto_token.go
@@ -2849,3 +2849,75 @@ func (maker *JWTMaker) VerifyToken(token string) (*Payload, error) {
 
 ```
 
+#### 使用授权中间件
+新建文件 `api/middleware.go`
+```go
+func authMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
+    // ...
+}
+```
+为需要权限的路由使用中间件
+```go
+func (server *Server) setupRouter() {
+    router := gin.Default()
+
+    // 设置路由
+    router.POST("/users", server.createUser)
+    router.POST("/users/login", server.loginUser)
+
+    authRoutes := router.Group("/").Use(authMiddleware(server.tokenMaker))
+    authRoutes.POST("/accounts", server.createAccount)
+    authRoutes.GET("/accounts/:id", server.getAccount)
+    authRoutes.GET("/accounts", server.listAccount)
+    authRoutes.POST("/transfers", server.createTransfer)
+
+    server.router = router
+}
+```
+在对应的处理函数中完善业务功能
+`api/account.go`
+```go
+func (server *Server) createAccount(ctx *gin.Context) {
+    // ...
+    authPayload := ctx.MustGet(authorizationPayloadKey).(*token.Payload)
+    arg := db.CreateAccountParams{
+        Owner:    authPayload.Username,
+        Currency: req.Currency,
+        Balance:  0,
+    }
+    // ...
+}
+func (server *Server) getAccount(ctx *gin.Context) {
+    // ...
+    authPayload := ctx.MustGet(authorizationPayloadKey).(*token.Payload)
+    if authPayload.Username != account.Owner {
+        err := errors.New("account does't belong to the authorizated user")
+        ctx.AbortWithStatusJSON(http.StatusUnauthorized, errorResponse(err))
+        return
+    }
+    // ...
+}
+func (server *Server) listAccount(ctx *gin.Context) {
+    // ...
+    authPayload := ctx.MustGet(authorizationPayloadKey).(*token.Payload)
+    arg := db.ListAccountsParams{
+        Owner:  authPayload.Username,
+        Limit:  req.PageSize,
+        Offset: (req.PageID - 1) * req.PageSize,
+    }
+    // ...
+}
+```
+`api/transfer.go`
+```go
+func (server *Server) createTransfer(ctx *gin.Context) {
+    // ...
+    authPayload := ctx.MustGet(authorizationPayloadKey).(*token.Payload)
+    if authPayload.Username != fromAccount.Owner {
+        err := errors.New("account does't belong to the authorizated user")
+        ctx.AbortWithStatusJSON(http.StatusUnauthorized, errorResponse(err))
+        return
+    }
+    // ...
+}
+```
