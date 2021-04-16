@@ -2925,3 +2925,57 @@ func (server *Server) createTransfer(ctx *gin.Context) {
 
 
 #### Build a minimal Golang Docker image with a multistage Dockerfile
+
+新建 `Dockfile`
+```dockfile
+# Build stage
+FROM golang:1.16.3-alpine3.13 AS builder
+WORKDIR /app
+COPY . .
+RUN export GO111MODULE=on
+RUN export GOPROXY="https://goproxy.io,direct"
+RUN go build -o main main.go
+
+# Run stage
+FROM alpine:3.13
+WORKDIR /app
+COPY --from=builder /app/main .
+COPY app.env .
+
+EXPOSE 8086
+CMD ["/app/main"]
+```
+
+构建 `docker` 镜像
+这里遇到一个问题就是如果不用科学上网的话，会 build 不成功，即使设置了 goproxy
+```shell
+docker build -t bank:latest . --network host
+```
+运行编译好的镜像
+```
+docker run --name bank -p 8086:8086 bank:latest
+```
+设置 go 环境
+```
+docker run --name bank -p 8086:8086 -e GIN_MODE=release bank:latest
+```
+访问连接后，提示数据库连接失败，查看 postgres12 的地址
+```
+docker container inspect postgres12
+```
+数据库修复数据库连接参数
+```
+docker run --name bank -p 8086:8086 -e GIN_MODE=release -e DB_SOURCE="postgresql://root:like@172.17.0.3:5432/bank?sslmode=disable" bank:latest
+```
+在 docker 中为项目创建一个新的网络
+```
+docker network create bank-network
+```
+为 postgres12 连接到这个网络
+```
+docker network connect bank-network postgres12
+```
+为 bank 镜像启动时设置网络
+```
+docker run --name bank --network bank-network -p 8086:8086 -e GIN_MODE=release -e DB_SOURCE="postgresql://root:like@172.17.0.3:5432/bank?sslmode=disable" bank:latest
+```
